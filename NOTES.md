@@ -1,0 +1,17 @@
+# NOTES.md
+
+## Summary of changes
+Fixed five high-value issues and added seven regression tests. 1) Added parentheses around the OR of the two LIKE predicates in the native search query (and the Oracle reference package) so that `archived = FALSE` and the optional `status` filter apply across all matches, fixing both the archived-row leak and the status-filter bypass on title matches. 2) Removed an unconditional `Thread.sleep` on the controller hot path that added up to 1 s per request; empty-search latency dropped from ~1 300 ms to ~11 ms locally. 3) Caught `IllegalArgumentException` from `TaskStatus.valueOf(...)` so an invalid query parameter now returns HTTP 400 with a JSON error instead of a raw 500; also clamped `page ≥ 1` and `pageSize ∈ [1, 100]` to avoid wasteful in-memory sublists. 4) Hardened the React `useTasks` hook with `AbortController` + request-id write-guard and the missing state transitions so that a failed request can never leave `loading = true`, stale responses can't clobber fresh ones, and the error state is cleared on the next attempt. 5) Added a 300 ms debounce to search and `setPage(1)` on filter changes so keystrokes don't spam the API and the user can't land on an empty page beyond the new total.
+
+## What I chose not to change, and why
+- No service-layer extraction: the controller is tiny and has no duplicated logic to DRY out; adding `TaskService` would be a rewrite of a working layout.
+- No global `@ControllerAdvice` / error envelope: only one endpoint exists, so a local 400 for invalid status is the smallest correct patch.
+- No dependency upgrades (including the npm audit warnings from the Vite 5 transient deps). The README explicitly says it is a patch exercise, not a rebuild, so dep churn risks unrelated regressions.
+- No accessibility overhaul or sort/search UX polish. Cosmetic improvements do not belong in a correctness-focused patch.
+- The Oracle PL/SQL reference file was only corrected for the same AND/OR precedence bug (in both the COUNT and paginated-results WHERE clauses). It cannot run against H2, so no Oracle test harness was added.
+
+## Biggest remaining risk
+Two tied: (a) no database-level unique constraints or explicit optimistic locking on `tasks` — the seed loads fine today, but any future write endpoint would silently produce duplicate titles or lost updates because the schema and entity have no `@Version`, no `UNIQUE(title)`, and no transactional service boundaries. (b) `spring-boot-starter-validation` is absent from the POM and the controller uses raw `@RequestParam`s with no JSR-303 `@Min/@Size/@Pattern`, so every query param drifts into custom one-off clamping code instead of declarative, testable validation. For a codebase expected to grow beyond a single read endpoint, these two will silently turn a missed "must be unique" business rule into data corruption.
+
+## Tools / AI usage
+Used GenAI as an engineering assistant only. Specifically: (i) static cross-reference of the repo to rank likely bugs before running anything, (ii) first draft of the `WHERE (...)` SQL rewrite and the AbortController + request-id React pattern (which I then trimmed to the minimal lines), (iii) initial skeleton of tests and these notes (which I then line-edited into the exact wording above). All code, prioritization calls, and prose were reviewed manually against the live behavior of the app before commit. AI was never used to assert a test result or an API outcome I couldn't also reproduce by curl.

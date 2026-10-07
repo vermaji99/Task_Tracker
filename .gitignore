@@ -11,10 +11,11 @@ target/
 *.war
 *.log
 
-# IDE
+# IDE / tooling
 .idea/
 *.iml
 .vscode/
+.trae/
 *.swp
 *.swo
 *~
